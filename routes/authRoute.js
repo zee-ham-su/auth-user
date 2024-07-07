@@ -5,7 +5,7 @@ const User = require('../models/user');
 const Organisation = require('../models/organisation');
 const { generateToken } = require('../auth');
 const { check, validationResult } = require('express-validator');
-const bcrypt = require('bcrypt'); // Import bcrypt for password hashing
+const bcrypt = require('bcrypt');
 
 router.post('/register', [
   // Validation rules
@@ -50,8 +50,8 @@ router.post('/register', [
 
     res.status(201).json({
       status: 'success',
-      message: 'Registration successful',
       data: {
+      message: 'Registration successful',
         accessToken,
         user: {
           userId: user.userId,
