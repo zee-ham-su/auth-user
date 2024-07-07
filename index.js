@@ -31,3 +31,5 @@ db.sync() // Sync models with the database
   .catch((error) => {
     console.error('Unable to connect to the database:', error);
   });
+
+  module.exports = app; // Export the app for testing purposes  

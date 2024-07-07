@@ -1,54 +1,72 @@
 const request = require('supertest');
 const app = require('../index');
+const User = require('../models/user');
+const Organisation = require('../models/organisation');
+const { generateToken } = require('../auth');
 
-describe('GET /user/:id', () => {
-  test('should return 404 if user is not found', async () => {
-    const response = await request(app).get('/user/123');
+describe('GET /:id', () => {
+  let user, organisation, token;
 
-    expect(response.status).toBe(404);
-    expect(response.body).toEqual({
-      status: 'Not found',
-      message: 'User not found',
-      statusCode: 404,
+  beforeAll(async () => {
+    // Create a user and organisation in the test database
+    user = await User.create({
+      firstName: 'John',
+      lastName: 'Doe',
+      email: 'john.doe@example.com',
+      phone: '1234567890',
     });
+
+    organisation = await Organisation.create({
+      name: 'Test Org',
+    });
+
+    // Associate user with the organisation
+    await user.addOrganisation(organisation);
+
+    // Generate a token for the user
+    token = generateToken({ userId: user.userId });
   });
 
-  test('should return 403 if user is not authorized to access the user', async () => {
-    const response = await request(app).get('/user/456');
-
-    expect(response.status).toBe(403);
-    expect(response.body).toEqual({
-      status: 'Forbidden',
-      message: 'Unauthorized access',
-      statusCode: 403,
-    });
+  afterAll(async () => {
+    // Clean up the test database
+    await User.destroy({ where: {} });
+    await Organisation.destroy({ where: {} });
   });
 
-  test('should return 200 with user data if user is found and authorized', async () => {
-    const response = await request(app).get('/user/789');
+  it('should retrieve the user successfully', async () => {
+    const res = await request(app)
+      .get(`/users/${user.userId}`)
+      .set('Authorization', `Bearer ${token}`);
 
-    expect(response.status).toBe(200);
-    expect(response.body).toEqual({
-      status: 'success',
-      message: 'User retrieved successfully',
-      data: {
-        userId: expect.any(Number),
-        firstName: expect.any(String),
-        lastName: expect.any(String),
-        email: expect.any(String),
-        phone: expect.any(String),
-      },
-    });
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('success');
+    expect(res.body.data).toHaveProperty('userId', user.userId);
   });
 
-  test('should return 500 if an error occurs while retrieving user', async () => {
-    const response = await request(app).get('/user/999');
+  it('should return 404 if the user does not exist', async () => {
+    const res = await request(app)
+      .get('/users/99999')
+      .set('Authorization', `Bearer ${token}`);
 
-    expect(response.status).toBe(500);
-    expect(response.body).toEqual({
-      status: 'Internal server error',
-      message: 'Failed to retrieve user',
-      statusCode: 500,
+    expect(res.status).toBe(404);
+    expect(res.body.status).toBe('Not found');
+  });
+
+  it('should return 403 for unauthorized access', async () => {
+    const otherUser = await User.create({
+      firstName: 'Jane',
+      lastName: 'Smith',
+      email: 'jane.smith@example.com',
+      phone: '0987654321',
     });
+
+    const otherToken = generateToken({ userId: otherUser.userId });
+
+    const res = await request(app)
+      .get(`/users/${user.userId}`)
+      .set('Authorization', `Bearer ${otherToken}`);
+
+    expect(res.status).toBe(403);
+    expect(res.body.status).toBe('Forbidden');
   });
 });

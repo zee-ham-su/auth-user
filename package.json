@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "test": "jest --config jest.config.js"
+    "test": "jest --config jest.config.js --detectOpenHandles --verbose"
   },
   "keywords": [],
   "author": "",
@@ -21,6 +21,9 @@
     "sequelize": "^6.37.3"
   },
   "devDependencies": {
+    "babel-jest": "^29.7.0",
+    "enzyme": "^3.11.0",
+    "enzyme-adapter-react-16": "^1.15.8",
     "jest": "^29.7.0",
     "supertest": "^7.0.0"
   }

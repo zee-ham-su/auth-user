@@ -1,136 +1,170 @@
 const request = require('supertest');
 const app = require('../index');
+const User = require('../models/user');
+const Organisation = require('../models/organisation');
+const { generateToken } = require('../auth');
+describe('Organisation Endpoints', () => {
+  let token; // Store the JWT token for authenticated requests
+  let organisationId; // Store the ID of the created organisation for testing
 
-describe('GET /organisations', () => {
-  test('should return 200 and retrieve organisations successfully', async () => {
-    const response = await request(app)
-      .get('/organisations')
-      .set('Authorization', 'Bearer your_token_here');
+  beforeAll(async () => {
+    // Create a test user
+    const user = await User.create({
+      firstName: 'John',
+      lastName: 'Doe',
+      email: 'john.doe@example.com',
+      password: 'password123',
+      phone: '1234567890',
+    });
 
-    expect(response.status).toBe(200);
-    expect(response.body.status).toBe('success');
-    expect(response.body.message).toBe('Organisations retrieved successfully');
-    expect(response.body.data.organisations).toBeDefined();
+    // Generate a JWT token for the user
+    token = generateToken(user);
   });
 
-  test('should return 500 and handle internal server error', async () => {
-    const response = await request(app)
-      .get('/organisations')
-      .set('Authorization', 'Bearer your_token_here');
-
-    expect(response.status).toBe(500);
-    expect(response.body.status).toBe('Internal server error');
-    expect(response.body.message).toBe('Failed to retrieve organisations');
-    expect(response.body.statusCode).toBe(500);
-  });
-});
-
-describe('GET /organisations/:orgId', () => {
-  test('should return 200 and retrieve organisation successfully', async () => {
-    const response = await request(app)
-      .get('/organisations/1')
-      .set('Authorization', 'Bearer your_token_here');
-
-    expect(response.status).toBe(200);
-    expect(response.body.status).toBe('success');
-    expect(response.body.message).toBe('Organisation retrieved successfully');
-    expect(response.body.data).toBeDefined();
+  afterAll(async () => {
+    // Clean up the test database after tests
+    await Organisation.destroy({ where: {} });
+    await User.destroy({ where: {} });
   });
 
-  test('should return 404 when organisation is not found', async () => {
-    const response = await request(app)
-      .get('/organisations/999')
-      .set('Authorization', 'Bearer your_token_here');
+  describe('GET /organisations', () => {
+    it('should retrieve organisations successfully', async () => {
+      const res = await request(app)
+        .get('/organisations')
+        .set('Authorization', `Bearer ${token}`);
 
-    expect(response.status).toBe(404);
-    expect(response.body.status).toBe('Not found');
-    expect(response.body.message).toBe('Organisation not found');
-    expect(response.body.statusCode).toBe(404);
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe('success');
+      expect(res.body.data.organisations).toBeInstanceOf(Array);
+    });
   });
 
-  test('should return 403 when user is not authorized to access the organisation', async () => {
-    const response = await request(app)
-      .get('/organisations/1')
-      .set('Authorization', 'Bearer your_token_here');
-
-    expect(response.status).toBe(403);
-    expect(response.body.status).toBe('Forbidden');
-    expect(response.body.message).toBe('Unauthorized access');
-    expect(response.body.statusCode).toBe(403);
-  });
-});
-
-describe('POST /organisations', () => {
-  test('should return 201 and create organisation successfully', async () => {
-    const response = await request(app)
-      .post('/organisations')
-      .set('Authorization', 'Bearer your_token_here')
-      .send({
-        name: 'Sample Organisation',
-        description: 'This is a sample organisation',
+  describe('GET /organisations/:orgId', () => {
+    beforeAll(async () => {
+      // Create a test organisation
+      const organisation = await Organisation.create({
+        name: 'Test Organisation',
+        description: 'Test description',
       });
 
-    expect(response.status).toBe(201);
-    expect(response.body.status).toBe('success');
-    expect(response.body.message).toBe('Organisation created successfully');
-    expect(response.body.data).toBeDefined();
+      organisationId = organisation.id;
+    });
+
+    it('should retrieve an organisation by ID successfully', async () => {
+      const res = await request(app)
+        .get(`/organisations/${organisationId}`)
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe('success');
+      expect(res.body.data.id).toBe(organisationId);
+    });
+
+    it('should return 404 if organisation ID does not exist', async () => {
+      const res = await request(app)
+        .get('/organisations/999')
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(res.status).toBe(404);
+      expect(res.body.status).toBe('Not found');
+    });
   });
 
-  test('should return 400 when request body is invalid', async () => {
-    const response = await request(app)
-      .post('/organisations')
-      .set('Authorization', 'Bearer your_token_here')
-      .send({
-        name: '',
-        description: 'This is a sample organisation',
-      });
+  describe('POST /organisations', () => {
+    it('should create a new organisation successfully', async () => {
+      const res = await request(app)
+        .post('/organisations')
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          name: 'New Organisation',
+          description: 'New description',
+        });
 
-    expect(response.status).toBe(400);
-    expect(response.body.status).toBe('Bad Request');
-    expect(response.body.message).toBe('Client error');
-    expect(response.body.statusCode).toBe(400);
-  });
-});
+      expect(res.status).toBe(201);
+      expect(res.body.status).toBe('success');
+      expect(res.body.data).toHaveProperty('id');
+      expect(res.body.data.name).toBe('New Organisation');
+    });
 
-describe('POST /organisations/:orgId/users', () => {
-  test('should return 200 and add user to organisation successfully', async () => {
-    const response = await request(app)
-      .post('/organisations/1/users')
-      .set('Authorization', 'Bearer your_token_here')
-      .send({
-        userId: 'user_id_here',
-      });
+    it('should return validation errors for missing fields', async () => {
+      const res = await request(app)
+        .post('/organisations')
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          description: 'New description',
+        });
 
-    expect(response.status).toBe(200);
-    expect(response.body.status).toBe('success');
-    expect(response.body.message).toBe('User added to organisation successfully');
-  });
-
-  test('should return 404 when organisation is not found', async () => {
-    const response = await request(app)
-      .post('/organisations/999/users')
-      .set('Authorization', 'Bearer your_token_here')
-      .send({
-        userId: 'user_id_here',
-      });
-
-    expect(response.status).toBe(404);
-    expect(response.body.status).toBe('Not found');
-    expect(response.body.message).toBe('Organisation not found');
-    expect(response.body.statusCode).toBe(404);
+      expect(res.status).toBe(422);
+      expect(res.body.errors).toHaveLength(1);
+      expect(res.body.errors[0].msg).toBe('Name is required');
+    });
   });
 
-  test('should return 403 when user is not authorized to add users to the organisation', async () => {
-    const response = await request(app)
-      .post('/organisations/1/users')
-      .set('Authorization', 'Bearer your_token_here')
-      .send({
-        userId: 'user_id_here',
+  describe('POST /organisations/:orgId/users', () => {
+    let anotherUser;
+
+    beforeAll(async () => {
+      // Create another user
+      anotherUser = await User.create({
+        firstName: 'Jane',
+        lastName: 'Smith',
+        email: 'jane.smith@example.com',
+        password: 'password456',
+        phone: '0987654321',
+      });
+    });
+
+    it('should add a user to the organisation successfully', async () => {
+      const res = await request(app)
+        .post(`/organisations/${organisationId}/users`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          userId: anotherUser.id,
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe('success');
+      // You can add more assertions based on your response structure
+    });
+
+    it('should return 404 if organisation ID does not exist', async () => {
+      const res = await request(app)
+        .post('/organisations/999/users')
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          userId: anotherUser.id,
+        });
+
+      expect(res.status).toBe(404);
+      expect(res.body.status).toBe('Not found');
+    });
+
+    it('should return 403 if user is not authorized to add users to the organisation', async () => {
+      // Simulate another user trying to add a user to the organisation
+      const unauthorizedToken = generateToken({
+        id: 999, // Assuming an ID that's not associated with the organisation
       });
 
-    expect(response.status).toBe(403);
-    expect(response.body.status).toBe('Forbidden');
-    expect(response.body.message).toBe('Unauthorized access');
-    expect(response.body.statusCode).toBe(403);
+      const res = await request(app)
+        .post(`/organisations/${organisationId}/users`)
+        .set('Authorization', `Bearer ${unauthorizedToken}`)
+        .send({
+          userId: anotherUser.id,
+        });
+
+      expect(res.status).toBe(403);
+      expect(res.body.status).toBe('Forbidden');
+    });
+
+    it('should return validation errors for missing fields', async () => {
+      const res = await request(app)
+        .post(`/organisations/${organisationId}/users`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({});
+
+      expect(res.status).toBe(422);
+      expect(res.body.errors).toHaveLength(1);
+      expect(res.body.errors[0].msg).toBe('User ID is required');
+    });
   });
 });
