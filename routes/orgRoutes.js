@@ -1,106 +1,90 @@
 const express = require('express');
+const { Organisation, User } = require('../models');
+const authenticateToken = require('../middleware/authToken');
+
 const router = express.Router();
-const Organisation = require('../models/organisation');
-const User = require('../models/user');
-const { verifyToken } = require('../auth');
-const { check, validationResult } = require('express-validator');
 
-router.get('/', verifyToken, async (req, res) => {
-  const userId = req.user.userId; // Get user ID from token
-
+router.get('/', authenticateToken, async (req, res) => {
   try {
-    // Use Sequelize's findAll to fetch organisations
-    const organisations = await Organisation.findAll({
-      include: [{ model: User, where: { userId } }], // Include associated users
-    });
+    console.log(`Request received for user ID: ${req.user.userId}`);
+    const user = await User.findByPk(req.user.userId);
+    console.log(`User retrieved: ${JSON.stringify(user)}`);
+    
+    const organisations = await user.getOrganisations();
+    console.log(`Organisations retrieved: ${JSON.stringify(organisations)}`);
 
     res.status(200).json({
       status: 'success',
       message: 'Organisations retrieved successfully',
       data: {
-        organisations,
+        organisations: organisations.map(org => ({
+          orgId: org.orgId,
+          name: org.name,
+          description: org.description,
+        })),
       },
     });
   } catch (error) {
-    console.error(error);
     res.status(500).json({
-      status: 'Internal server error',
-      message: 'Failed to retrieve organisations',
-      statusCode: 500,
+      status: 'error',
+      message: 'Internal server error',
     });
   }
 });
 
-router.get('/:orgId', verifyToken, async (req, res) => {
-  const { orgId } = req.params;
-  const userId = req.user.userId; // Get user ID from token
-
+router.get('/:orgId', authenticateToken, async (req, res) => {
   try {
-    // Use Sequelize's findByPk to fetch organisation by ID
-    const organisation = await Organisation.findByPk(orgId, {
-      include: [{ model: User }], // Include associated users
-    });
+    const user = await User.findByPk(req.user.userId);
+    const organisation = await Organisation.findByPk(req.params.orgId);
 
-    if (!organisation) {
+    if (!organisation || !(await user.hasOrganisation(organisation))) {
       return res.status(404).json({
-        status: 'Not found',
+        status: 'error',
         message: 'Organisation not found',
-        statusCode: 404,
-      });
-    }
-
-    // Check if the user is authorized to access this organisation
-    if (!organisation.Users.some((user) => user.userId === userId)) {
-      return res.status(403).json({
-        status: 'Forbidden',
-        message: 'Unauthorized access',
-        statusCode: 403,
       });
     }
 
     res.status(200).json({
       status: 'success',
       message: 'Organisation retrieved successfully',
-      data: organisation,
+      data: {
+        orgId: organisation.orgId,
+        name: organisation.name,
+        description: organisation.description,
+      },
     });
   } catch (error) {
-    console.error(error);
     res.status(500).json({
-      status: 'Internal server error',
-      message: 'Failed to retrieve organisation',
-      statusCode: 500,
+      status: 'error',
+      message: 'Internal server error',
     });
   }
 });
 
-router.post('/', verifyToken, [
-  check('name').notEmpty().withMessage('Name is required'),
-], async (req, res) => {
-  const errors = validationResult(req);
-  if (!errors.isEmpty()) {
-    return res.status(422).json({ errors: errors.array() });
-  }
-
-  const { name, description } = req.body;
-  const userId = req.user.userId; // Get user ID from token
-
+router.post('/', authenticateToken, async (req, res) => {
   try {
-    // Use Sequelize's create to create a new organisation
-    const organisation = await Organisation.create({
-      name,
-      description,
-    });
+    const { name, description } = req.body;
 
-    // Associate user with organisation
-    await organisation.addUser(userId);
+    if (!name) {
+      return res.status(422).json({
+        errors: [{ field: 'name', message: 'Name is required' }],
+      });
+    }
+
+    const organisation = await Organisation.create({ name, description });
+    const user = await User.findByPk(req.user.userId);
+    await user.addOrganisation(organisation);
 
     res.status(201).json({
       status: 'success',
       message: 'Organisation created successfully',
-      data: organisation,
+      data: {
+        orgId: organisation.orgId,
+        name: organisation.name,
+        description: organisation.description,
+      },
     });
   } catch (error) {
-    console.error(error);
     res.status(400).json({
       status: 'Bad Request',
       message: 'Client error',
@@ -109,46 +93,31 @@ router.post('/', verifyToken, [
   }
 });
 
-router.post('/:orgId/users', verifyToken, [
-  check('userId').notEmpty().withMessage('User ID is required'),
-], async (req, res) => {
-  const { orgId } = req.params;
-  const { userId } = req.body;
-  const currentUserId = req.user.userId; // Get user ID from token
-
+router.post('/:orgId/users', authenticateToken, async (req, res) => {
   try {
-    // Use Sequelize's findByPk to fetch organisation by ID
-    const organisation = await Organisation.findByPk(orgId);
-    if (!organisation) {
+    const { userId } = req.body;
+    const organisation = await Organisation.findByPk(req.params.orgId);
+    const user = await User.findByPk(userId);
+
+    if (!organisation || !user) {
       return res.status(404).json({
-        status: 'Not found',
-        message: 'Organisation not found',
-        statusCode: 404,
+        status: 'error',
+        message: 'Organisation or user not found',
       });
     }
 
-    // Check if the user is authorized to add users to this organisation
-    if (!organisation.Users.some((user) => user.userId === currentUserId)) {
-      return res.status(403).json({
-        status: 'Forbidden',
-        message: 'Unauthorized access',
-        statusCode: 403,
-      });
-    }
-
-    // Use Sequelize's addUser method to add a user to the organisation
-    await organisation.addUser(userId);
+    await organisation.addUser(user);
 
     res.status(200).json({
       status: 'success',
       message: 'User added to organisation successfully',
     });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({
-      status: 'Internal server error',
+    console.error('Error adding user to organisation:', error);
+    res.status(400).json({
+      status: 'Bad Request',
       message: 'Failed to add user to organisation',
-      statusCode: 500,
+      error: error.message, 
     });
   }
 });
