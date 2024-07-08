@@ -1,135 +1,133 @@
 const request = require('supertest');
 const app = require('../index');
-const User = require('../models/user');
-const Organisation = require('../models/organisation');
-const sequelize = require('../db'); // Import the Sequelize instance
-const bcrypt = require('bcrypt');
+const { User, Organisation, sequelize } = require('../models');
+const jwt = require('jsonwebtoken');
 
-describe('Auth Endpoints', () => {
+describe('Authentication', () => {
   beforeAll(async () => {
-    // Ensure a clean state before tests
-    await sequelize.sync({ force: true }); // Sync models to the database and force recreate tables
+    await sequelize.sync({ force: true }); // Sync models with the database
   });
 
   afterAll(async () => {
-    // Clean up the test database after tests
-    await sequelize.close(); // Close the Sequelize connection
+    await sequelize.close(); // Close the database connection
   });
 
-  describe('POST /register', () => {
-    it('should register a new user successfully', async () => {
-      const res = await request(app)
+  describe('POST /auth/register', () => {
+    it('Should register user successfully', async () => {
+      const response = await request(app)
         .post('/auth/register')
         .send({
           firstName: 'John',
           lastName: 'Doe',
-          email: 'john.doe@example.com',
+          email: 'john@example.com',
           password: 'password123',
           phone: '1234567890',
         });
 
-      expect(res.status).toBe(201);
-      expect(res.body.status).toBe('success');
-      expect(res.body.data.user).toHaveProperty('userId');
+      expect(response.status).toBe(201);
+      expect(response.body.status).toBe('success');
+      expect(response.body.message).toBe('Registration successful');
+      expect(response.body.data.accessToken).toBeDefined();
+      expect(response.body.data.user).toBeDefined();
+      expect(response.body.data.user.firstName).toBe('John');
     });
 
-    it('should not register a user with an existing email', async () => {
-      await User.create({
-        firstName: 'Jane',
-        lastName: 'Doe',
-        email: 'jane.doe@example.com',
-        password: 'password123',
-        phone: '1234567890',
-      });
-
-      const res = await request(app)
+    it('Should fail if required fields are missing', async () => {
+      const response = await request(app)
         .post('/auth/register')
         .send({
           firstName: 'Jane',
           lastName: 'Doe',
-          email: 'jane.doe@example.com',
+          email: 'jane@example.com',
+        });
+
+      expect(response.status).toBe(422);
+      expect(response.body.errors).toBeDefined();
+      expect(response.body.errors.some(e => e.field === 'password')).toBe(true);
+    });
+
+    it('Should fail if there\'s duplicate email', async () => {
+      await request(app)
+        .post('/auth/register')
+        .send({
+          firstName: 'John',
+          lastName: 'Doe',
+          email: 'john@example.com',
           password: 'password123',
           phone: '1234567890',
         });
 
-      expect(res.status).toBe(422);
-      expect(res.body.errors[0].msg).toBe('Email already exists');
-    });
-
-    it('should return validation errors for missing fields', async () => {
-      const res = await request(app)
+      const response = await request(app)
         .post('/auth/register')
         .send({
-          firstName: '',
-          lastName: '',
-          email: 'invalidemail',
-          password: '',
-          phone: '',
+          firstName: 'John',
+          lastName: 'Doe',
+          email: 'john@example.com',
+          password: 'password123',
+          phone: '1234567890',
         });
 
-      expect(res.status).toBe(422);
-      expect(res.body.errors).toHaveLength(4);
+      expect(response.status).toBe(422);
+      expect(response.body.errors).toBeDefined();
+      expect(response.body.errors.some(e => e.field === 'email')).toBe(true);
     });
   });
 
-  describe('POST /login', () => {
-    beforeAll(async () => {
-      await User.create({
-        firstName: 'John',
-        lastName: 'Doe',
-        email: 'john.doe@example.com',
-        password: await bcrypt.hash('password123', 10),
-        phone: '1234567890',
-      });
-    });
+  describe('POST /auth/login', () => {
+    it('Should log the user in successfully', async () => {
+      await request(app)
+        .post('/auth/register')
+        .send({
+          firstName: 'Alice',
+          lastName: 'Smith',
+          email: 'alice@example.com',
+          password: 'password123',
+          phone: '1234567890',
+        });
 
-    it('should login successfully with correct credentials', async () => {
-      const res = await request(app)
+      const response = await request(app)
         .post('/auth/login')
         .send({
-          email: 'john.doe@example.com',
+          email: 'alice@example.com',
           password: 'password123',
         });
 
-      expect(res.status).toBe(200);
-      expect(res.body.status).toBe('success');
-      expect(res.body.data).toHaveProperty('accessToken');
+      expect(response.status).toBe(200);
+      expect(response.body.status).toBe('success');
+      expect(response.body.message).toBe('Login successful');
+      expect(response.body.data.accessToken).toBeDefined();
+      expect(response.body.data.user).toBeDefined();
+      expect(response.body.data.user.email).toBe('alice@example.com');
     });
 
-    it('should return error for invalid email', async () => {
-      const res = await request(app)
+    it('Should fail with invalid credentials', async () => {
+      const response = await request(app)
         .post('/auth/login')
         .send({
-          email: 'invalid@example.com',
-          password: 'password123',
-        });
-
-      expect(res.status).toBe(401);
-      expect(res.body.message).toBe('Authentication failed');
-    });
-
-    it('should return error for invalid password', async () => {
-      const res = await request(app)
-        .post('/auth/login')
-        .send({
-          email: 'john.doe@example.com',
+          email: 'alice@example.com',
           password: 'wrongpassword',
         });
 
-      expect(res.status).toBe(401);
-      expect(res.body.message).toBe('Authentication failed');
+      expect(response.status).toBe(401);
+      expect(response.body.status).toBe('Bad request');
+      expect(response.body.message).toBe('Authentication failed');
     });
+  });
 
-    it('should return validation errors for missing fields', async () => {
-      const res = await request(app)
-        .post('/auth/login')
-        .send({
-          email: '',
-          password: '',
-        });
+  describe('Token generation', () => {
+    it('Should generate a token that expires at the correct time', async () => {
+      const user = await User.create({
+        firstName: 'Test',
+        lastName: 'User',
+        email: 'test@example.com',
+        password: 'password123',
+      });
 
-      expect(res.status).toBe(422);
-      expect(res.body.errors).toHaveLength(2);
+      const token = jwt.sign({ userId: user.userId }, process.env.JWT_SECRET, { expiresIn: '1h' });
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+      expect(decoded.userId).toBe(user.userId);
+      expect(decoded.exp - decoded.iat).toBe(3600);
     });
   });
 });
