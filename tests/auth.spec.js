@@ -2,20 +2,18 @@ const request = require('supertest');
 const app = require('../index');
 const User = require('../models/user');
 const Organisation = require('../models/organisation');
-const { pool } = require('../db');
+const sequelize = require('../db'); // Import the Sequelize instance
+const bcrypt = require('bcrypt');
 
 describe('Auth Endpoints', () => {
   beforeAll(async () => {
     // Ensure a clean state before tests
-    await User.destroy({ where: {} });
-    await Organisation.destroy({ where: {} });
+    await sequelize.sync({ force: true }); // Sync models to the database and force recreate tables
   });
 
   afterAll(async () => {
     // Clean up the test database after tests
-    await User.destroy({ where: {} });
-    await Organisation.destroy({ where: {} });
-    pool.end(); // Close the database connection
+    await sequelize.close(); // Close the Sequelize connection
   });
 
   describe('POST /register', () => {
