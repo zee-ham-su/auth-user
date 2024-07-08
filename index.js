@@ -21,6 +21,13 @@ app.use('/auth', authRoutes);
 app.use('/api/organisations', orgRoutes);
 app.use('/api/users', userRoutes);
 
+
+//home route
+app.get('/', (req, res) => {
+  res.send('Welcome to the API!');
+});
+
+
 // Start server
 db.sync() // Sync models with the database
   .then(() => {
